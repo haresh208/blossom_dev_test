@@ -17,7 +17,8 @@ class FTP implements UploadInterface
      */
     public function uploadFile($file, $params){
 
-        $ftp = new FTPUploader($file, $params['ftp']['hostname'], $params['ftp']['username'],$params['ftp']['password']
+        $ftp = new FTPUploader();
+        $ftp = $ftp->uploadFile($file, $params['ftp']['hostname'], $params['ftp']['username'],$params['ftp']['password']
             ,$params['ftp']['destination']);
 
         return array('url' => "ftp://".$params['ftp']['hostname']."/".$params['ftp']['destination']."/".$file->getFileName());
