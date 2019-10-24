@@ -1,6 +1,7 @@
 <?php
 namespace Blossom\BackendDeveloperTest;
 
+use FFMPEGStub\FFMPEG;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -12,6 +13,17 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class Application
 {
+
+    /**
+     * @var array
+     */
+    protected $configParams;
+
+    /**
+     * @var integer
+     */
+    protected $statusCode;
+
     /**
      * By default the constructor takes a single argument which is a config array.
      *
@@ -21,7 +33,7 @@ class Application
      */
     public function __construct(array $config)
     {
-
+        $this->configParams = $config;
     }
 
     /**
@@ -36,6 +48,110 @@ class Application
      */
     public function handleRequest(Request $request): Response
     {
+        $result = array();
+        $response = new Response();
+        $response->setCharset('UTF-8')
+            ->headers->set('Content-Type', 'application/json');
+
+
+        // return if request method is not POST method
+        if($request->getMethod() != "POST"){
+
+            return $response->setContent(json_encode(array("error" => "Request method is not allowed")))
+                ->setStatusCode(Response::HTTP_METHOD_NOT_ALLOWED);
+        }
+
+        //return if null request found
+        if($request->request == NULL){
+
+            return $response->setContent(json_encode(array("error" => "Null request found")))
+                ->setStatusCode(Response::HTTP_BAD_REQUEST);
+        }
+
+        $formats    = $request->get('formats');
+        $uploadType = $request->get('upload');
+        $file       = $request->files->get('file');
+
+        // return if not parameters found return as bad request
+        if(empty($formats) && empty($uploadType)){
+
+            return $response->setContent(json_encode(array("error" => "Parameters not found")))
+                ->setStatusCode(Response::HTTP_BAD_REQUEST);
+
+        }
+
+        // return if file is not in request
+        if(!$file || $file == NULL){
+
+            return $response->setContent(json_encode(array("error" => "File not found")))
+                ->setStatusCode(Response::HTTP_BAD_REQUEST);
+        }
+
+        try{
+            if(isset($uploadType) && !empty($uploadType)){
+
+                $uploadFactory = new UploadFactory();
+                $uploadClient = $uploadFactory->getUploadChannel($uploadType);
+
+                if(!$uploadClient){
+                    return $response->setContent(json_encode(array("error" => "Unknown type found")))
+                        ->setStatusCode(Response::HTTP_BAD_REQUEST);
+                }
+
+                $data = $uploadClient->uploadFile($file, $this->configParams);
+
+                if($data){
+                    $result['url'] = $data['url'];
+                }
+            }
+
+        }catch (\InvalidArgumentException $ex){
+            return $response->setContent(json_encode(array("error" => $ex->getMessage())))
+                ->setStatusCode(Response::HTTP_INTERNAL_SERVER_ERROR);
+        }catch (\RuntimeException $ex){
+            return $response->setContent(json_encode(array("error" => $ex->getMessage())))
+                ->setStatusCode(Response::HTTP_INTERNAL_SERVER_ERROR);
+        }catch (\Exception $ex){
+            return $response->setContent(json_encode(array("error" => $ex->getMessage())))
+                ->setStatusCode(Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+
+
+        // conver files for required format
+        foreach ($formats as $format){
+
+            switch ($format){
+                case FormatType::MP4:
+                    $ffmpeg = new FFMPEG();
+                    $convFileObj = $ffmpeg->convert($file);
+                    $formats[$format] = $data['baseUriMp4'].$convFileObj->getFilename();
+                    break;
+                case FormatType::WEBM:
+                    $encoding = new \EncodingStub\Client($this->configParams['encoding.com']['app_id'],
+                        $this->configParams['encoding.com']['access_token']);
+                    $formats[$format] = $encoding->encodeFile($file, $format);
+                    break;
+                case FormatType::OGV:
+                    $encoding = new \EncodingStub\Client($this->configParams['encoding.com']['app_id'],
+                        $this->configParams['encoding.com']['access_token']);
+                    $formats[$format] = $encoding->encodeFile($file, $format);
+                    break;
+                default:
+                    return $response->setContent(json_encode(array("Error" => "Format is not supported")))
+                        ->setStatusCode(Response::HTTP_BAD_REQUEST);
+                    break;
+            }
+
+        }
+
+        $result['formats'] = $formats;
+
+        $response->setContent(json_encode($result))
+            ->setStatusCode(Response::HTTP_OK);
+        return $response;
 
     }
+
+
 }
